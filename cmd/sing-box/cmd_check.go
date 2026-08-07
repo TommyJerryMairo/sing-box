@@ -3,18 +3,28 @@ package main
 import (
 	"context"
 
-	"github.com/sagernet/sing-box"
+	box "github.com/sagernet/sing-box"
+	"github.com/sagernet/sing-box/adapter"
+	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/log"
+	"github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/service"
 
 	"github.com/spf13/cobra"
 )
 
+var checkStartGeph bool
+
+func init() {
+	mainCommand.AddCommand(commandCheck)
+	commandCheck.Flags().BoolVar(&checkStartGeph, "start-geph", false, "launch Geph endpoints and validate control port availability")
+}
+
 var commandCheck = &cobra.Command{
 	Use:   "check",
 	Short: "Check configuration",
 	Run: func(cmd *cobra.Command, args []string) {
-		err := check()
+		err := checkWithOptions(checkStartGeph)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -22,11 +32,11 @@ var commandCheck = &cobra.Command{
 	Args: cobra.NoArgs,
 }
 
-func init() {
-	mainCommand.AddCommand(commandCheck)
+func check() error {
+	return checkWithOptions(false)
 }
 
-func check() error {
+func checkWithOptions(startGeph bool) error {
 	options, err := readConfigAndMerge()
 	if err != nil {
 		return err
@@ -36,9 +46,49 @@ func check() error {
 		Context: ctx,
 		Options: options,
 	})
-	if err == nil {
-		instance.Close()
+	if err != nil {
+		cancel()
+		return err
 	}
+	if startGeph {
+		err = checkStartGephEndpoints(instance)
+	}
+	closeErr := instance.Close()
 	cancel()
+	if err == nil {
+		return closeErr
+	}
+	if closeErr != nil {
+		err = exceptions.Append(err, closeErr, func(err error) error {
+			return exceptions.Cause(err, "close configuration")
+		})
+	}
+	return err
+}
+
+func checkStartGephEndpoints(instance *box.Box) error {
+	var gephEndpoints []adapter.Endpoint
+	for _, endpoint := range instance.Endpoint().Endpoints() {
+		if endpoint.Type() != C.TypeGeph {
+			continue
+		}
+		gephEndpoints = append(gephEndpoints, endpoint)
+	}
+	var started []adapter.Endpoint
+	for _, endpoint := range gephEndpoints {
+		started = append(started, endpoint)
+		if err := endpoint.Start(adapter.StartStateStart); err != nil {
+			return closeGephEndpoints(started, err)
+		}
+	}
+	return closeGephEndpoints(started, nil)
+}
+
+func closeGephEndpoints(endpoints []adapter.Endpoint, err error) error {
+	for i := len(endpoints) - 1; i >= 0; i-- {
+		err = exceptions.Append(err, endpoints[i].Close(), func(closeErr error) error {
+			return exceptions.Cause(closeErr, "close ", endpoints[i].Type(), "[", endpoints[i].Tag(), "]")
+		})
+	}
 	return err
 }

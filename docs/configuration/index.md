@@ -47,6 +47,14 @@ sing-box uses JSON for configuration files.
 sing-box check
 ```
 
+To validate Geph endpoint readiness and control-port availability, run:
+
+```bash
+sing-box check --start-geph
+```
+
+This option starts all Geph endpoints declared in the configuration, waits for each to report `Connected`, and then stops them.
+
 ### Format
 
 ```bash

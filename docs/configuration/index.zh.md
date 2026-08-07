@@ -47,6 +47,14 @@ sing-box 使用 JSON 作为配置文件格式。
 sing-box check
 ```
 
+如需校验 Geph 端点就绪与控制端口占用情况，可执行：
+
+```bash
+sing-box check --start-geph
+```
+
+该选项会启动配置文件中所有 Geph 端点、等待每个端点上报 `Connected`，然后停止它们。
+
 ### 格式化
 
 ```bash
